@@ -1,50 +1,71 @@
-# 🧠 QueryAI — Gen AI Optimal Query Development
+# 🧠 QueryAI v3.0 — Gen AI Optimal Query Development
 
-> An AI-powered SQL query assistant with DDL/DML/DCL analysis, time complexity estimation, row prediction, code quality scoring, and optimization suggestions — powered by Google Gemini.
+> An advanced AI-powered SQL query assistant featuring **User Authentication, Per-User Database Isolation, Local LLM Integration (Ollama), Token Capping**, and DDL/DML/DCL analysis. Now powered by **Ollama (Qwen)** for privacy and cost-efficiency, with **Google Gemini** as a cloud fallback.
 
 ---
 
-## ✨ Features
+## ✨ What's New in v3.0
 
 | Feature | Description |
 |---|---|
-| 💬 **GPT-style Chat** | Ask any SQL/DBMS question in natural language with memory |
-| 🔍 **SQL Analyzer** | Full analysis with DDL/DML/DCL classification |
-| ⏱️ **Time Complexity** | O(n), O(n log n), O(n²) estimation per query |
-| 🛡️ **Code Quality Score** | Grades your queries from 0 to 100 based on standard conventions |
-| 📊 **Row Prediction** | Estimate rows affected with warnings |
-| 🚀 **Query Optimizer** | AI-powered optimization suggestions |
-| ⚡ **Query Execution** | Run SQL directly in the app and view results in a data grid |
-| 🔀 **Multiple Alternatives** | Get 2-3 distinct SQL approaches for ambiguous NLP queries |
-| ✏️ **SQL Editor** | Monaco Editor (VS Code-style) for SQL with live DB integration |
+| 🔐 **User Authentication** | Full Signup/Login system with `bcrypt` password hashing and secure `JWT` cookies. |
+| 🗄️ **Per-User Isolation** | Every user gets their own dedicated `SQLite` database sandbox. Your data is 100% private. |
+| 🤖 **Local LLM via Ollama** | Uses `qwen2.5-coder:3b` for SQL generation and `qwen3:8b` for chat. **Zero API costs.** |
+| 🧠 **Thinking Mode** | Uses Qwen's `/think` capability for Claude-like reasoning to prevent SQL hallucinations. |
+| 🪙 **Token Capping** | Daily token limits (e.g., 50,000/day) per user. Tracks usage across models. |
+| 💎 **Premium UI** | Upgraded frontend with Glassmorphism, deep dark gradients, and micro-animations. |
 
 ---
 
 ## 🚀 Quick Start
 
-### Step 1: Start the Backend (Node.js/Express)
+### Step 1: Install & Run Ollama (Local LLM)
+1. Download and install [Ollama](https://ollama.com/).
+2. Pull the required models:
+```bash
+ollama run qwen2.5-coder:3b
+ollama run qwen3:8b
+```
+3. Ensure Ollama is running in the background (default: `http://localhost:11434`).
 
+### Step 2: Start the Backend (Node.js/Express)
 ```bash
 cd backend-node
 npm install
-npm start
+```
+Create a `.env` file in `backend-node/`:
+```env
+PORT=9000
+JWT_SECRET=your_super_secret_jwt_key
+OLLAMA_URL=http://localhost:11434
+LLM_PRIMARY=ollama
+TOKEN_CAP_DAILY=50000
+GEMINI_API_KEY=your_gemini_key_here (optional fallback)
+CORS_ORIGINS=http://localhost:3000
+```
+```bash
+npm run dev
 ```
 
-Backend will be running on: `http://localhost:9000`
-
-> **Note:** Make sure you create a `.env` file in `backend-node/` using `.env.example` as a template. You must provide a valid `GEMINI_API_KEY` and a custom `CLIENT_API_KEY`.
-
-### Step 2: Start the Frontend (Next.js)
-
+### Step 3: Start the Frontend (Next.js)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+Open `http://localhost:3000` in your browser. Create an account to begin!
 
-Frontend will be running on: `http://localhost:3000`
+---
 
-> **Note:** Create a `.env.local` file in `frontend/` and add `NEXT_PUBLIC_CLIENT_API_KEY=your_secret_key` matching the backend to authenticate your requests.
+## ⚙️ Tech Stack
+
+- **Frontend**: Next.js 14 + React + Glassmorphism UI + Monaco Editor
+- **Backend**: Node.js + Express.js 4
+- **Security**: `bcrypt` (Hashing), `jsonwebtoken` (Auth), `express-rate-limit`, `helmet`
+- **AI Models**: 
+  - Primary: **Ollama** (`qwen2.5-coder:3b`, `qwen3:8b`)
+  - Secondary/Cloud: **Google Gemini 1.5 Flash**
+- **Databases**: SQLite (User Accounts & Per-User DBs) & PostgreSQL (Supabase)
 
 ---
 
@@ -53,21 +74,19 @@ Frontend will be running on: `http://localhost:3000`
 ```
 Gen_AI_Optimal_query_development/
 ├── backend-node/
+│   ├── data/                  # Auto-generated per-user isolated SQLite databases
 │   ├── src/
-│   │   ├── controllers/       # Route controllers
-│   │   ├── middlewares/       # Rate limiting, input validation, Auth
-│   │   ├── routes/            # Express routers
-│   │   └── services/          # Gemini AI, SQL Parser, Code Quality
-│   ├── app.js                 # Express App & Security Setup
+│   │   ├── controllers/       # Auth, Query, DB controllers
+│   │   ├── middlewares/       # JWT Auth, Rate limiting
+│   │   ├── routes/            # API endpoints
+│   │   └── services/          # Ollama Router, Gemini, SQL Parser, User DB
+│   ├── app.js                 # Express App
 │   ├── server.js              # Entry point
-│   ├── seed_hr.js             # SQLite HR Database Seeder
-│   ├── .env.example
 │   └── package.json
 ├── frontend/
 │   ├── app/
-│   │   ├── page.tsx           # Main UI (Chat, Analyzer, Editor, NLP)
-│   │   ├── layout.tsx
-│   │   └── globals.css        # Brutalist / Flat Design System
+│   │   ├── page.tsx           # Main App UI (Auth, Chat, Analyzer)
+│   │   └── globals.css        # Premium Dark Mode / Glassmorphism
 │   └── package.json
 └── README.md
 ```
@@ -75,30 +94,17 @@ Gen_AI_Optimal_query_development/
 ---
 
 ## 🔒 Security Posture
-The backend has been hardened according to OWASP standards:
-- **Rate Limiting:** Protects AI endpoints from DDoS and spam.
-- **Input Validation:** Strict parsing rejects unexpected fields or oversized payloads.
-- **API Key Auth:** Global middleware ensures frontend access is restricted to authorized clients.
-- **Read-Only Sandbox:** Executing SQL queries strictly forbids destructive commands (`DROP`, `DELETE`, `ALTER`, etc.).
-
----
-
-## ⚙️ Tech Stack
-
-- **Frontend**: Next.js 14 + React + Custom CSS + Monaco Editor
-- **Backend**: Node.js + Express.js 4
-- **AI**: Google Gemini 1.5 Flash
-- **Database Support**: SQLite (Local demo) & PostgreSQL (Supabase)
-- **Design**: Modern Flat Brutalism UI with Micro-animations
+- **Auth**: Passwords are hashed (12 rounds). Sessions use HTTP-only, SameSite cookies.
+- **Data Privacy**: Complete data silo-ing. User A's data can never be queried by User B.
+- **Anti-Hallucination**: LLMs are provided with exact schema metadata, preventing fake tables/columns. 
+- **Execution Sandbox**: Users can execute generated SQL, but it only runs within their cloned `demo.sqlite` environment.
 
 ---
 
 ## ⚠️ Important
-
-- Keep your `.env` file private — never commit it to git.
-- The AI only answers SQL/DBMS-related questions (by design).
-- Do not connect this app to a production database, only use sandboxed mock databases.
+- Keep your `.env` file private.
+- The `data/` directory (where user DBs are stored) is ignored in git to prevent data leaks.
+- To use cloud Postgres, provide the URL in the sidebar of the application.
 
 ---
-
-Made with ❤️ using Google Gemini AI
+Made with ❤️ using Ollama & Google Gemini.
