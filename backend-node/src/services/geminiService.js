@@ -42,7 +42,7 @@ const chatWithGemini = async (userMessage, history = [], schema = "") => {
         const result = await chat.sendMessage(userMessage);
         return result.response.text();
     } catch (error) {
-        return `Error: ${error.message}`;
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 
@@ -82,7 +82,7 @@ IMPORTANT: Keep explanations extremely short and concise. No conversational fill
         const result = await model.generateContent(prompt);
         return { response: result.response.text(), status: "success" };
     } catch (error) {
-        return { response: `Error: ${error.message}`, status: "error" };
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 
@@ -119,7 +119,7 @@ Which option to use and why, considering performance, readability, and maintaina
         const result = await model.generateContent(prompt);
         return { response: result.response.text(), status: "success" };
     } catch (error) {
-        return { response: `Error: ${error.message}`, status: "error" };
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 
@@ -148,7 +148,7 @@ Structure your explanation as:
         const result = await model.generateContent(prompt);
         return result.response.text();
     } catch (error) {
-        return `Error: ${error.message}`;
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 
@@ -185,7 +185,7 @@ Rough estimate of improvement`;
         const result = await model.generateContent(prompt);
         return result.response.text();
     } catch (error) {
-        return `Error: ${error.message}`;
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 
@@ -211,7 +211,7 @@ Just provide the SQL query with brief explanation.`;
         const result = await model.generateContent(prompt);
         return result.response.text();
     } catch (error) {
-        return `Error: ${error.message}`;
+        throw new Error("AI Service is temporarily unreachable. Please check your network connection.");
     }
 };
 

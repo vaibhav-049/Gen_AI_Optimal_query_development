@@ -297,10 +297,16 @@ body {
 .message-bubble pre {
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border) !important;
-  border-radius: var(--radius);
-  padding: 16px !important;
+  border-radius: var(--radius) !important;
+  padding: 0 !important;
   overflow-x: auto;
-  margin: 16px 0;
+  margin: 12px 0;
+}
+
+.message-bubble pre > div {
+  margin: 0 !important;
+  border-radius: var(--radius) !important;
+  background: transparent !important;
 }
 
 .message-bubble pre code {

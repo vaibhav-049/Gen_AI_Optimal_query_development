@@ -56,14 +56,13 @@ You are a SQL expert. Convert the following requirement to SQL.${schemaCtx}
 
 REQUIREMENT: ${naturalLanguage}
 
-Output ONLY the SQL query inside a \`\`\`sql code block. Add a 1-line explanation after.
-If ambiguous, provide 2 options labeled Option 1 and Option 2.`;
+Output ONLY the SQL query inside a \`\`\`sql code block. Be direct and concise. Do not provide explanations or multiple options unless explicitly asked.`;
 
     try {
         const response = await callOllama(CODE_MODEL, prompt);
         return { response, status: 'success' };
     } catch (error) {
-        return { response: `Error: ${error.message}`, status: 'error' };
+        throw new Error("Local AI Service is unreachable. Please ensure Ollama is running.");
     }
 };
 
@@ -114,7 +113,7 @@ Output SQL in \`\`\`sql code blocks.`;
         const response = await callOllama(CODE_MODEL, prompt);
         return { response, status: 'success' };
     } catch (error) {
-        return { response: `Error: ${error.message}`, status: 'error' };
+        throw new Error("Local AI Service is unreachable. Please ensure Ollama is running.");
     }
 };
 

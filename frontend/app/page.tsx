@@ -19,7 +19,7 @@ interface AuthUser { id: number; email: string; }
 interface TokenUsage { tokens_used_today: number; token_cap: number; remaining: number; }
 
 type Mode = "chat" | "analyze" | "editor" | "nlp";
-type PanelTab = "analysis" | "quality" | "tables" | "tips";
+type PanelTab = "analysis" | "quality" | "tables" | "tips" | "results";
 
 interface Message { role: "user" | "assistant"; content: string; }
 
@@ -63,6 +63,7 @@ export default function Home() {
   const [dbStatus, setDbStatus] = useState<DBStatus>({ connected: false });
   const [connectingDB, setConnectingDB] = useState(false);
   const [nlpResult, setNlpResult] = useState("");
+  const [nlpSuggestions, setNlpSuggestions] = useState("");
   const [nlpMode, setNlpMode] = useState<"nlp-to-sql" | "suggest">("nlp-to-sql");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -249,20 +250,45 @@ export default function Home() {
         body: JSON.stringify({ message: text, history: messages.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) {
+        setMessages(prev => [...prev, { role: "assistant", content: `Error: ${data.error || 'Failed to generate response.'}` }]);
+        return;
+      }
       setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
+      
+      // Auto-Execute Logic for Visualization
+      const sqlMatch = data.response.match(/```sql\n([\s\S]*?)```/i);
+      if (sqlMatch && sqlMatch[1]) {
+        const extractedSql = sqlMatch[1].trim();
+        if (extractedSql.toUpperCase().includes("SELECT")) {
+          setPanelTab("results");
+          runSQL(extractedSql);
+        }
+      }
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not reach the backend on port 9000." }]);
     } finally { setLoading(false); }
   };
 
-  const analyzeSQL = async (sql?: string) => {
+  const fetchSuggestions = async (sql: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/query/suggest`, {
+        method: "POST", headers: apiHeaders, credentials: "include",
+        body: JSON.stringify({ requirement: `Suggest better alternatives and optimizations for this query:\n${sql}` }),
+      });
+      const data = await res.json();
+      setNlpSuggestions(data.response || "");
+    } catch {}
+  };
+
+  const analyzeSQL = async (sql?: string, fromNLP = false) => {
     const query = sql || sqlCode;
     if (!query.trim()) return;
     setAnalyzing(true);
     setAnalysisResult(null);
 
     const cacheKey = `analyze_${query}`;
-    if (apiCache[cacheKey]) {
+    if (apiCache[cacheKey] && !apiCache[cacheKey].ai_explanation?.startsWith("Error:")) {
       const data = apiCache[cacheKey];
       setAnalysisResult({
         classification: data.classification,
@@ -290,6 +316,16 @@ export default function Home() {
         body: JSON.stringify({ sql: query }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) {
+        setMessages(prev => [
+          ...prev,
+          { role: "user", content: `Analyze this query:\n\`\`\`sql\n${query}\n\`\`\`` },
+          { role: "assistant", content: `Error: ${data.error || 'Failed to analyze query.'}` },
+        ]);
+        setMode("chat");
+        setSidebarItem("chat");
+        return;
+      }
       setApiCache(prev => ({ ...prev, [cacheKey]: data }));
       setAnalysisResult({
         classification: data.classification,
@@ -298,7 +334,7 @@ export default function Home() {
         quality: data.quality,
         tables_info: data.tables_info,
       });
-      if (data.ai_explanation) {
+      if (data.ai_explanation && !fromNLP) {
         setMessages(prev => [
           ...prev,
           { role: "user", content: `Analyze this query:\n\`\`\`sql\n${query}\n\`\`\`` },
@@ -306,6 +342,11 @@ export default function Home() {
         ]);
         setMode("chat");
         setSidebarItem("chat");
+      }
+      
+      // Auto-suggest logic if quality is low
+      if (fromNLP && data.quality && data.quality.score < 85) {
+        fetchSuggestions(query);
       }
     } catch { alert("Backend not reachable on port 9000."); }
     finally { setAnalyzing(false); }
@@ -336,7 +377,7 @@ export default function Home() {
     setNlpResult("");
 
     const cacheKey = `nlp_${nlpMode}_${nlpInput}`;
-    if (apiCache[cacheKey]) {
+    if (apiCache[cacheKey] && typeof apiCache[cacheKey] === "string" && !apiCache[cacheKey].startsWith("Error:")) {
       setNlpResult(apiCache[cacheKey]);
       setNlpLoading(false);
       return;
@@ -349,9 +390,27 @@ export default function Home() {
         body: JSON.stringify({ requirement: nlpInput }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) {
+        setNlpResult(`Error: ${data.error || 'Failed to process text.'}`);
+        return;
+      }
       const resultText = data.response || "No response received";
       setApiCache(prev => ({ ...prev, [cacheKey]: resultText }));
       setNlpResult(resultText);
+      setNlpSuggestions(""); // clear previous suggestions
+      
+      // Auto-Analysis and Execution Trigger
+      if (nlpMode === "nlp-to-sql") {
+        const sqlMatch = resultText.match(/```sql\n([\s\S]*?)```/i);
+        if (sqlMatch && sqlMatch[1]) {
+          const extractedSql = sqlMatch[1].trim();
+          setPanelTab("analysis");
+          analyzeSQL(extractedSql, true);
+          if (extractedSql.toUpperCase().includes("SELECT")) {
+            runSQL(extractedSql);
+          }
+        }
+      }
     } catch { setNlpResult("Error: Could not connect to backend."); }
     finally { setNlpLoading(false); }
   };
@@ -667,7 +726,15 @@ LIMIT 5;
                   {messages.map((msg, i) => (
                     <div key={i} className={`message ${msg.role}`}>
                       <div className="message-label">{msg.role === "user" ? "You" : "QueryAI"}</div>
-                      <div className="message-bubble"><MdRenderer content={msg.content} /></div>
+                      <div className="message-bubble" style={msg.content.startsWith("Error:") ? { borderColor: "var(--red)", background: "rgba(239, 68, 68, 0.05)" } : {}}>
+                        {msg.content.startsWith("Error:") ? (
+                          <div style={{ color: "var(--red)", display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span>⚠️</span> {msg.content}
+                          </div>
+                        ) : (
+                          <MdRenderer content={msg.content} />
+                        )}
+                      </div>
                     </div>
                   ))}
                   {loading && (
@@ -774,12 +841,23 @@ LIMIT 5;
               )}
               
               {nlpResult && (
-                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", padding: "24px" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "16px" }}>Result</div>
-                  <div style={{ padding: 0, margin: 0 }}>
-                    <MdRenderer content={nlpResult} />
+                <div style={{ 
+                  background: nlpResult.startsWith("Error:") ? "rgba(239, 68, 68, 0.05)" : "var(--bg-card)", 
+                  border: nlpResult.startsWith("Error:") ? "1px solid var(--red)" : "1px solid var(--border)", 
+                  padding: "24px", 
+                  borderRadius: "var(--radius)" 
+                }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: nlpResult.startsWith("Error:") ? "var(--red)" : "var(--text-secondary)", marginBottom: "16px" }}>
+                    {nlpResult.startsWith("Error:") ? "⚠️ System Error" : "Result"}
                   </div>
-                  {(() => {
+                  <div style={{ padding: 0, margin: 0 }}>
+                    {nlpResult.startsWith("Error:") ? (
+                      <div style={{ color: "var(--red)" }}>{nlpResult}</div>
+                    ) : (
+                      <MdRenderer content={nlpResult} />
+                    )}
+                  </div>
+                  {!nlpResult.startsWith("Error:") && (() => {
                     const sqlMatches = [...nlpResult.matchAll(/```sql\n([\s\S]*?)```/g)];
                     return (
                       <div style={{ display: "flex", gap: "12px", marginTop: "24px", borderTop: "1px solid var(--border)", paddingTop: "16px", flexWrap: "wrap", alignItems: "center" }}>
@@ -807,6 +885,17 @@ LIMIT 5;
                       </div>
                     );
                   })()}
+                </div>
+              )}
+
+              {nlpSuggestions && (
+                <div style={{ background: "rgba(234, 179, 8, 0.1)", border: "1px solid var(--yellow-dark)", padding: "24px", borderRadius: "12px", marginTop: "-8px" }}>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--yellow)", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span>⚠️</span> Low Quality Detected - Suggested Alternatives
+                  </div>
+                  <div style={{ padding: 0, margin: 0 }}>
+                    <MdRenderer content={nlpSuggestions} />
+                  </div>
                 </div>
               )}
             </div>
@@ -999,7 +1088,7 @@ LIMIT 5;
       {}
       <aside className="right-panel">
         <div className="right-panel-tabs">
-          {(["analysis", "quality", "tables", "tips"] as PanelTab[]).map(tab => (
+          {(["results", "analysis", "quality", "tables", "tips"] as PanelTab[]).map(tab => (
             <div key={tab} className={`panel-tab ${panelTab === tab ? "active" : ""}`} onClick={() => setPanelTab(tab)} style={{ textTransform: "capitalize" }}>
               {tab}
             </div>
@@ -1007,8 +1096,62 @@ LIMIT 5;
         </div>
 
         <div className="panel-content">
+          {panelTab === "results" && (
+            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "16px" }}>Execution Results</div>
+              {executing ? (
+                <div style={{ color: "var(--text-muted)", fontSize: "14px" }}>Executing query...</div>
+              ) : executionResult ? (
+                executionResult.error || executionResult.status === "error" ? (
+                  <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: "16px", borderRadius: "8px", color: "#fca5a5", fontSize: "13px" }}>
+                    {executionResult.error || executionResult.message || "Failed to execute query."}
+                  </div>
+                ) : executionResult.columns && executionResult.data && executionResult.data.length > 0 ? (
+                  <div style={{ overflowX: "auto", overflowY: "auto", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "8px", flex: 1 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+                      <thead style={{ position: "sticky", top: 0, background: "var(--bg-secondary)", zIndex: 1 }}>
+                        <tr>
+                          {executionResult.columns.map((col, idx) => (
+                            <th key={idx} style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {executionResult.data.map((row, rowIdx) => (
+                          <tr key={rowIdx} style={{ borderBottom: "1px solid var(--border)", transition: "background 0.2s" }} onMouseOver={(e) => e.currentTarget.style.background = "var(--bg-secondary)"} onMouseOut={(e) => e.currentTarget.style.background = "transparent"}>
+                            {executionResult.columns!.map((col, colIdx) => (
+                              <td key={colIdx} style={{ padding: "10px 16px", color: "var(--text-primary)", whiteSpace: "nowrap", borderRight: "1px solid var(--border)" }}>
+                                {row[col] !== null ? String(row[col]) : <i style={{color: "var(--text-muted)"}}>NULL</i>}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ color: "var(--text-muted)", fontSize: "14px", padding: "24px", textAlign: "center", background: "var(--bg-card)", border: "1px dashed var(--border)", borderRadius: "8px" }}>
+                    Query executed successfully. No rows returned.
+                  </div>
+                )
+              ) : (
+                <div style={{ color: "var(--text-muted)", fontSize: "14px", marginTop: "24px" }}>
+                  Ask a question in chat to auto-generate and execute a query.
+                </div>
+              )}
+            </div>
+          )}
+
           {panelTab === "analysis" && (
-            !analysisResult ? (
+            analyzing ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "24px" }}>
+                <div className="skeleton-loader skeleton-line" style={{ height: "80px", borderRadius: "8px" }}></div>
+                <div className="skeleton-loader skeleton-line" style={{ height: "120px", borderRadius: "8px" }}></div>
+                <div className="skeleton-loader skeleton-line" style={{ height: "80px", borderRadius: "8px" }}></div>
+              </div>
+            ) : !analysisResult ? (
               <div style={{ color: "var(--text-muted)", fontSize: "14px", marginTop: "40px" }}>
                 Run an analysis to see details here.
               </div>
@@ -1049,7 +1192,12 @@ LIMIT 5;
           )}
 
           {panelTab === "quality" && (
-            !analysisResult?.quality ? (
+            analyzing ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "24px" }}>
+                <div className="skeleton-loader skeleton-line" style={{ height: "150px", borderRadius: "8px" }}></div>
+                <div className="skeleton-loader skeleton-line" style={{ height: "60px", borderRadius: "8px" }}></div>
+              </div>
+            ) : !analysisResult?.quality ? (
               <div style={{ color: "var(--text-muted)", fontSize: "14px", marginTop: "40px" }}>
                 Run an analysis to calculate a code quality score.
               </div>
