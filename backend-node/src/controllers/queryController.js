@@ -1,13 +1,14 @@
-const geminiService = require('../services/geminiService');
+const llmRouter = require('../services/llmRouter');
 const sqlParser = require('../services/sqlParser');
 const codeQuality = require('../services/codeQuality');
 const dbConnector = require('../services/dbConnector');
 
 exports.chat = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { message, history = [] } = req.body;
-        const schema = await dbConnector.getSchemaAsText();
-        const response = await geminiService.chatWithGemini(message, history, schema);
+        const schema = await dbConnector.getSchemaAsText(userId);
+        const response = await llmRouter.route('chat', [message, history, schema], userId);
         res.json({ response, status: "success" });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -16,25 +17,21 @@ exports.chat = async (req, res) => {
 
 exports.analyzeSql = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { sql, schema: reqSchema } = req.body;
         if (!sql || !sql.trim()) return res.status(400).json({ detail: "SQL cannot be empty" });
 
-        const schema = reqSchema || await dbConnector.getSchemaAsText();
+        const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
         const classification = sqlParser.classifyQuery(sql);
         const complexity = sqlParser.estimateTimeComplexity(sql);
         const rows = sqlParser.estimateRowsAffected(sql);
         const tablesInfo = sqlParser.extractTablesAndColumns(sql);
         const quality = codeQuality.calculateCodeQuality(sql);
-        const aiExplanation = await geminiService.explainSimple(sql);
+        const aiExplanation = await llmRouter.route('explainSimple', [sql], userId);
 
         res.json({
-            status: "success",
-            sql,
-            classification,
-            complexity,
-            rows_affected: rows,
-            tables_info: tablesInfo,
-            quality,
+            status: "success", sql, classification, complexity,
+            rows_affected: rows, tables_info: tablesInfo, quality,
             ai_explanation: aiExplanation
         });
     } catch (error) {
@@ -44,9 +41,10 @@ exports.analyzeSql = async (req, res) => {
 
 exports.nlpToSqlEndpoint = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { requirement, schema: reqSchema } = req.body;
-        const schema = reqSchema || await dbConnector.getSchemaAsText();
-        const result = await geminiService.nlpToSql(requirement, schema);
+        const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
+        const result = await llmRouter.route('nlpToSql', [requirement, schema], userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -55,9 +53,10 @@ exports.nlpToSqlEndpoint = async (req, res) => {
 
 exports.suggestQuery = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { requirement, schema: reqSchema } = req.body;
-        const schema = reqSchema || await dbConnector.getSchemaAsText();
-        const result = await geminiService.suggestBestQuery(requirement, schema);
+        const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
+        const result = await llmRouter.route('suggestBestQuery', [requirement, schema], userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -66,9 +65,10 @@ exports.suggestQuery = async (req, res) => {
 
 exports.explainSimpleEndpoint = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { sql } = req.body;
         if (!sql || !sql.trim()) return res.status(400).json({ detail: "SQL cannot be empty" });
-        const explanation = await geminiService.explainSimple(sql);
+        const explanation = await llmRouter.route('explainSimple', [sql], userId);
         res.json({ explanation, status: "success" });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -77,23 +77,17 @@ exports.explainSimpleEndpoint = async (req, res) => {
 
 exports.optimizeSql = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { sql, schema: reqSchema } = req.body;
         if (!sql || !sql.trim()) return res.status(400).json({ detail: "SQL cannot be empty" });
-        const schema = reqSchema || await dbConnector.getSchemaAsText();
-        
+        const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
+
         const classification = sqlParser.classifyQuery(sql);
         const complexity = sqlParser.estimateTimeComplexity(sql);
         const quality = codeQuality.calculateCodeQuality(sql);
-        const aiOptimization = await geminiService.optimizeQuery(sql, schema);
-        
-        res.json({
-            status: "success",
-            sql,
-            classification,
-            complexity,
-            quality,
-            ai_optimization: aiOptimization
-        });
+        const aiOptimization = await llmRouter.route('optimizeQuery', [sql, schema], userId);
+
+        res.json({ status: "success", sql, classification, complexity, quality, ai_optimization: aiOptimization });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -132,9 +126,10 @@ exports.tablesInfo = async (req, res) => {
 
 exports.industryStandard = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { requirement, schema: reqSchema } = req.body;
-        const schema = reqSchema || await dbConnector.getSchemaAsText();
-        const result = await geminiService.generateIndustryStandardSql(requirement, schema);
+        const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
+        const result = await llmRouter.route('generateIndustryStandardSql', [requirement, schema], userId);
         res.json({ response: result, status: "success" });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -143,8 +138,9 @@ exports.industryStandard = async (req, res) => {
 
 exports.executeSql = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { sql } = req.body;
-        const result = await dbConnector.executeQuery(sql);
+        const result = await dbConnector.executeQuery(userId, sql);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

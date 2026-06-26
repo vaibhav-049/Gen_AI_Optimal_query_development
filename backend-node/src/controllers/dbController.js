@@ -2,13 +2,14 @@ const dbConnector = require('../services/dbConnector');
 
 exports.dbConnect = async (req, res) => {
     try {
-        const { db_path = "./demo.sqlite", db_type = "sqlite" } = req.body;
-        
+        const userId = req.user.id;
+        const { db_path, db_type = "sqlite" } = req.body;
+
         let result;
-        if (db_type === "postgres" || db_path.startsWith("postgres")) {
-            result = await dbConnector.connectPostgres(db_path);
+        if (db_type === "postgres" || (db_path && db_path.startsWith("postgres"))) {
+            result = await dbConnector.connectPostgres(userId, db_path);
         } else {
-            result = await dbConnector.connectSqlite(db_path);
+            result = await dbConnector.connectSqlite(userId, db_path);
         }
         res.json(result);
     } catch (error) {
@@ -18,8 +19,9 @@ exports.dbConnect = async (req, res) => {
 
 exports.dbSchema = async (req, res) => {
     try {
-        const schemaText = await dbConnector.getSchemaAsText();
-        const status = dbConnector.getConnectionStatus();
+        const userId = req.user.id;
+        const schemaText = await dbConnector.getSchemaAsText(userId);
+        const status = dbConnector.getConnectionStatus(userId);
         res.json({ schema_text: schemaText, ...status });
     } catch (error) {
         res.status(500).json({ status: "error", message: error.message });
@@ -28,7 +30,8 @@ exports.dbSchema = async (req, res) => {
 
 exports.dbStatus = async (req, res) => {
     try {
-        const status = dbConnector.getConnectionStatus();
+        const userId = req.user.id;
+        const status = dbConnector.getConnectionStatus(userId);
         res.json(status);
     } catch (error) {
         res.status(500).json({ status: "error", message: error.message });

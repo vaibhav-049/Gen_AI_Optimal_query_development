@@ -15,6 +15,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ||
     ? `http://${window.location.hostname}:9000` 
     : "http://localhost:9000");
 
+interface AuthUser { id: number; email: string; }
+interface TokenUsage { tokens_used_today: number; token_cap: number; remaining: number; }
+
 type Mode = "chat" | "analyze" | "editor" | "nlp";
 type PanelTab = "analysis" | "quality" | "tables" | "tips";
 
@@ -36,6 +39,16 @@ const safeGetItem = (key: string) => { try { return localStorage.getItem(key); }
 const safeSetItem = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch {} };
 
 export default function Home() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
   const [mode, setMode] = useState<Mode>("chat");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -62,8 +75,59 @@ export default function Home() {
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [executing, setExecuting] = useState(false);
   
-  const apiHeaders = { "Content-Type": "application/json", "x-api-key": process.env.NEXT_PUBLIC_CLIENT_API_KEY || "" };
-  const getHeaders = { "x-api-key": process.env.NEXT_PUBLIC_CLIENT_API_KEY || "" };
+  const apiHeaders = { "Content-Type": "application/json" };
+  const fetchOpts = { credentials: "include" as RequestCredentials };
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setAuthUser(data.user);
+        setTokenUsage(data.usage);
+      }
+    } catch {}
+    setAuthLoading(false);
+  };
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSubmitting(true);
+    try {
+      const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAuthUser(data.user);
+        setAuthEmail("");
+        setAuthPassword("");
+        checkAuth();
+      } else {
+        setAuthError(data.message || "Something went wrong.");
+      }
+    } catch {
+      setAuthError("Cannot reach the server.");
+    }
+    setAuthSubmitting(false);
+  };
+
+  const handleLogout = async () => {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: "POST", credentials: "include" });
+    setAuthUser(null);
+    setTokenUsage(null);
+    setMessages([]);
+    setSessions([]);
+  };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -156,17 +220,17 @@ export default function Home() {
     try {
       const payload = url && url.startsWith("postgres") 
         ? { db_path: url, db_type: "postgres" } 
-        : { db_path: "./demo.sqlite", db_type: "sqlite" };
+        : {};
 
       const res = await fetch(`${API_BASE}/api/db/connect`, {
-        method: "POST", headers: apiHeaders,
+        method: "POST", headers: apiHeaders, credentials: "include",
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.status === "success" || data.status === "connected") {
-        const schemaRes = await fetch(`${API_BASE}/api/db/schema`, { headers: getHeaders });
+        const schemaRes = await fetch(`${API_BASE}/api/db/schema`, { credentials: "include" });
         const schemaData = await schemaRes.json();
-        setDbStatus({ connected: true, db_type: "SQLite", db_path: "./demo.sqlite", schema_text: schemaData.schema_text });
+        setDbStatus({ connected: true, db_type: schemaData.type || "SQLite", db_path: schemaData.path, schema_text: schemaData.schema_text });
       }
     } catch { setDbStatus({ connected: false }); }
     finally { setConnectingDB(false); }
@@ -181,7 +245,7 @@ export default function Home() {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/query/chat`, {
-        method: "POST", headers: apiHeaders,
+        method: "POST", headers: apiHeaders, credentials: "include",
         body: JSON.stringify({ message: text, history: messages.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
@@ -222,7 +286,7 @@ export default function Home() {
 
     try {
       const res = await fetch(`${API_BASE}/api/query/analyze`, {
-        method: "POST", headers: apiHeaders,
+        method: "POST", headers: apiHeaders, credentials: "include",
         body: JSON.stringify({ sql: query }),
       });
       const data = await res.json();
@@ -254,7 +318,7 @@ export default function Home() {
     setExecutionResult(null);
     try {
       const res = await fetch(`${API_BASE}/api/query/execute`, {
-        method: "POST", headers: apiHeaders,
+        method: "POST", headers: apiHeaders, credentials: "include",
         body: JSON.stringify({ sql: queryToRun }),
       });
       const data = await res.json();
@@ -281,7 +345,7 @@ export default function Home() {
     try {
       const endpoint = nlpMode === "nlp-to-sql" ? "/api/query/nlp-to-sql" : "/api/query/suggest";
       const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: "POST", headers: apiHeaders,
+        method: "POST", headers: apiHeaders, credentials: "include",
         body: JSON.stringify({ requirement: nlpInput }),
       });
       const data = await res.json();
@@ -312,6 +376,131 @@ export default function Home() {
     }}>{content}</ReactMarkdown>
   );
 
+  if (authLoading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", background: "var(--bg-primary)", color: "var(--text-secondary)", fontSize: "14px" }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div style={{ 
+        display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", 
+        background: "radial-gradient(circle at 50% -20%, #1a1a2e 0%, #121212 70%)", 
+        color: "var(--text-primary)", fontFamily: "'Inter', sans-serif" 
+      }}>
+        <div style={{ 
+          width: "420px", padding: "48px 40px", 
+          background: "rgba(30, 30, 30, 0.6)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "20px",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0,0,0,0.2)"
+        }}>
+          <div style={{ textAlign: "center", marginBottom: "32px" }}>
+            <h1 style={{ 
+              fontSize: "28px", fontWeight: 700, margin: "0 0 8px 0", letterSpacing: "-0.5px",
+              background: "linear-gradient(135deg, #fff 0%, #a3a3a3 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
+            }}>
+              QueryAI
+            </h1>
+            <p style={{ fontSize: "14px", color: "var(--text-muted)", margin: 0 }}>
+              {authMode === "login" ? "Welcome back! Please enter your details." : "Create an account to get started."}
+            </p>
+          </div>
+
+          <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "8px", color: "var(--text-secondary)" }}>Email address</label>
+              <input
+                type="email" placeholder="you@example.com" value={authEmail} required
+                onChange={(e) => setAuthEmail(e.target.value)}
+                style={{ 
+                  width: "100%", padding: "12px 16px", background: "rgba(0,0,0,0.2)", 
+                  border: "1px solid rgba(255,255,255,0.1)", color: "white", fontSize: "15px", 
+                  borderRadius: "12px", outline: "none", transition: "all 0.2s ease"
+                }}
+                onFocus={(e) => e.target.style.borderColor = "var(--accent-primary)"}
+                onBlur={(e) => e.target.style.borderColor = "rgba(255,255,255,0.1)"}
+              />
+            </div>
+            
+            <div style={{ position: "relative" }}>
+              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "8px", color: "var(--text-secondary)" }}>Password</label>
+              <input
+                type={showPassword ? "text" : "password"} placeholder="••••••••" value={authPassword} required
+                onChange={(e) => setAuthPassword(e.target.value)}
+                style={{ 
+                  width: "100%", padding: "12px 48px 12px 16px", background: "rgba(0,0,0,0.2)", 
+                  border: "1px solid rgba(255,255,255,0.1)", color: "white", fontSize: "15px", 
+                  borderRadius: "12px", outline: "none", transition: "all 0.2s ease"
+                }}
+                onFocus={(e) => e.target.style.borderColor = "var(--accent-primary)"}
+                onBlur={(e) => e.target.style.borderColor = "rgba(255,255,255,0.1)"}
+              />
+              <button 
+                type="button" 
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ 
+                  position: "absolute", right: "12px", top: "36px", background: "none", 
+                  border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "4px",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                )}
+              </button>
+            </div>
+
+            {authError && (
+              <div style={{ 
+                fontSize: "13px", color: "#fca5a5", padding: "12px", 
+                border: "1px solid rgba(248, 113, 113, 0.3)", background: "rgba(239, 68, 68, 0.1)",
+                borderRadius: "8px", display: "flex", alignItems: "center", gap: "8px"
+              }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                {authError}
+              </div>
+            )}
+
+            <button type="submit" disabled={authSubmitting}
+              style={{ 
+                padding: "14px", marginTop: "8px",
+                background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)", 
+                color: "#fff", border: "none", fontSize: "15px", fontWeight: 600, 
+                cursor: "pointer", borderRadius: "12px", transition: "all 0.2s",
+                boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
+                opacity: authSubmitting ? 0.7 : 1,
+                transform: authSubmitting ? "scale(0.98)" : "scale(1)"
+              }}
+              onMouseOver={(e) => { if (!authSubmitting) e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(37, 99, 235, 0.4)"; }}
+              onMouseOut={(e) => { if (!authSubmitting) e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(37, 99, 235, 0.3)"; }}
+              onMouseDown={(e) => { if (!authSubmitting) e.currentTarget.style.transform = "scale(0.98)"; }}
+              onMouseUp={(e) => { if (!authSubmitting) e.currentTarget.style.transform = "translateY(-1px)"; }}
+            >
+              {authSubmitting ? "Processing..." : authMode === "login" ? "Sign In" : "Create Account"}
+            </button>
+          </form>
+
+          <div style={{ marginTop: "32px", textAlign: "center", fontSize: "14px", color: "var(--text-muted)" }}>
+            {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
+            <span onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }}
+              style={{ color: "#60a5fa", cursor: "pointer", fontWeight: 500, transition: "color 0.2s" }}
+              onMouseOver={(e) => e.currentTarget.style.color = "#93c5fd"}
+              onMouseOut={(e) => e.currentTarget.style.color = "#60a5fa"}
+            >
+              {authMode === "login" ? "Sign Up" : "Log In"}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {}
@@ -319,6 +508,28 @@ export default function Home() {
         <div className="sidebar-logo">
           <div className="sidebar-logo-text">QueryAI</div>
           <div className="sidebar-logo-sub">SQL Assistant</div>
+        </div>
+
+        <div style={{ margin: "0 16px 8px", padding: "12px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.2)", borderRadius: "12px", fontSize: "12px" }}>
+          <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis" }}>{authUser.email}</div>
+          {tokenUsage && (
+            <div style={{ color: "var(--text-muted)", marginTop: "4px", fontSize: "11px" }}>
+              Tokens: {tokenUsage.tokens_used_today.toLocaleString()} / {tokenUsage.token_cap.toLocaleString()}
+            </div>
+          )}
+          <button 
+            onClick={handleLogout} 
+            style={{ 
+              marginTop: "12px", padding: "6px 12px", fontSize: "12px", fontWeight: 500,
+              background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", 
+              color: "#fca5a5", cursor: "pointer", borderRadius: "8px", width: "100%",
+              transition: "all 0.2s"
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.2)"; e.currentTarget.style.color = "#fecaca"; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"; e.currentTarget.style.color = "#fca5a5"; }}
+          >
+            Sign Out
+          </button>
         </div>
 
         {}
