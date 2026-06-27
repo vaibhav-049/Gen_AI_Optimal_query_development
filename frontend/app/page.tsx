@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -64,6 +64,8 @@ export default function Home() {
   const [connectingDB, setConnectingDB] = useState(false);
   const [nlpResult, setNlpResult] = useState("");
   const [nlpSuggestions, setNlpSuggestions] = useState("");
+  const [dialect, setDialect] = useState("PostgreSQL");
+  const [rightPanelWidth, setRightPanelWidth] = useState(400);
   const [nlpMode, setNlpMode] = useState<"nlp-to-sql" | "suggest">("nlp-to-sql");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -247,7 +249,7 @@ export default function Home() {
     try {
       const res = await fetch(`${API_BASE}/api/query/chat`, {
         method: "POST", headers: apiHeaders, credentials: "include",
-        body: JSON.stringify({ message: text, history: messages.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ message: text, history: messages.map(m => ({ role: m.role, content: m.content })), dialect }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -387,7 +389,7 @@ export default function Home() {
       const endpoint = nlpMode === "nlp-to-sql" ? "/api/query/nlp-to-sql" : "/api/query/suggest";
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST", headers: apiHeaders, credentials: "include",
-        body: JSON.stringify({ requirement: nlpInput }),
+        body: JSON.stringify({ requirement: nlpInput, dialect }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -418,9 +420,27 @@ export default function Home() {
   const navItems = [
     { id: "chat", label: "Chat Assistant" },
     { id: "nlp", label: "English to SQL" },
-    { id: "analyze", label: "SQL Analyzer" },
-    { id: "editor", label: "SQL Editor" },
   ];
+
+  const startResizing = React.useCallback((mouseDownEvent: React.MouseEvent) => {
+    mouseDownEvent.preventDefault();
+    const startX = mouseDownEvent.clientX;
+    const startWidth = rightPanelWidth;
+
+    const onMouseMove = (mouseMoveEvent: MouseEvent) => {
+      const deltaX = startX - mouseMoveEvent.clientX;
+      const newWidth = Math.min(Math.max(startWidth + deltaX, 300), 800);
+      setRightPanelWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [rightPanelWidth]);
 
   const MdRenderer = ({ content }: { content: string }) => (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
@@ -668,13 +688,11 @@ export default function Home() {
           <div className="topbar-title">
             {mode === "chat" && "Chat Assistant"}
             {mode === "nlp" && "English to SQL"}
-            {mode === "analyze" && "SQL Analyzer"}
-            {mode === "editor" && "SQL Editor"}
           </div>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ color: dbStatus.connected ? 'var(--green)' : 'var(--red)', fontSize: '14px' }}>●</span>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{dbStatus.type === 'postgres' ? 'Supabase' : 'SQLite'}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{dbStatus.db_type === 'postgres' ? 'Supabase' : 'SQLite'}</span>
             </div>
             <input 
               type="password" 
@@ -759,9 +777,30 @@ LIMIT 5;
                   value={input} onChange={e => { setInput(e.target.value); autoResize(); }}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                   rows={1} />
-                <button className="send-btn" onClick={() => sendMessage()} disabled={!input.trim() || loading} data-tooltip="Send message">
-                  {loading ? "Sending..." : "Send"}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <select 
+                    value={dialect}
+                    onChange={(e) => setDialect(e.target.value)}
+                    style={{
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)', 
+                      color: 'var(--text-primary)', padding: '8px 12px', fontSize: '13px', 
+                      borderRadius: 'var(--radius-sm)', outline: 'none', cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                    title="Select Target SQL Dialect"
+                  >
+                    <option value="SQL">ANSI SQL</option>
+                    <option value="PostgreSQL">PostgreSQL</option>
+                    <option value="MySQL">MySQL</option>
+                    <option value="Oracle SQL">Oracle SQL</option>
+                    <option value="Microsoft SQL Server">SQL Server</option>
+                    <option value="SQLite">SQLite</option>
+                    <option value="MongoDB">MongoDB</option>
+                  </select>
+                  <button className="send-btn" onClick={() => sendMessage()} disabled={!input.trim() || loading} data-tooltip="Send message">
+                    {loading ? "Sending..." : "Send"}
+                  </button>
+                </div>
               </div>
               <div className="input-hint">Shift+Enter for a new line</div>
             </div>
@@ -807,9 +846,30 @@ LIMIT 5;
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Press Ctrl+Enter to generate</div>
-                  <button className="action-btn primary" onClick={runNLP} disabled={!nlpInput.trim() || nlpLoading} data-tooltip="Generate SQL from text">
-                    {nlpLoading ? "Generating..." : "Generate SQL"}
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select 
+                      value={dialect}
+                      onChange={(e) => setDialect(e.target.value)}
+                      style={{
+                        background: 'var(--bg-primary)', border: '1px solid var(--border)', 
+                        color: 'var(--text-primary)', padding: '6px 12px', fontSize: '13px', 
+                        borderRadius: 'var(--radius-sm)', outline: 'none', cursor: 'pointer',
+                        fontWeight: 500, height: '100%'
+                      }}
+                      title="Select Target SQL Dialect"
+                    >
+                      <option value="SQL">ANSI SQL</option>
+                      <option value="PostgreSQL">PostgreSQL</option>
+                      <option value="MySQL">MySQL</option>
+                      <option value="Oracle SQL">Oracle SQL</option>
+                      <option value="Microsoft SQL Server">SQL Server</option>
+                      <option value="SQLite">SQLite</option>
+                      <option value="MongoDB">MongoDB</option>
+                    </select>
+                    <button className="action-btn primary" onClick={runNLP} disabled={!nlpInput.trim() || nlpLoading} data-tooltip="Generate SQL from text">
+                      {nlpLoading ? "Generating..." : "Generate SQL"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -864,21 +924,21 @@ LIMIT 5;
                         <button className="action-btn" onClick={() => setNlpResult("")}>Clear</button>
                         {sqlMatches.length === 1 && (
                           <>
-                            <button className="action-btn primary" onClick={() => {
-                              setSqlCode(sqlMatches[0][1]); setMode("editor"); setSidebarItem("editor"); setTimeout(() => runSQL(sqlMatches[0][1]), 100);
-                            }} data-tooltip="Run generated query">Run Output</button>
+                            <button className="action-btn primary" disabled={dialect !== 'SQLite' && dialect !== 'SQL'} onClick={() => {
+                              setSqlCode(sqlMatches[0][1]); setPanelTab("results"); setTimeout(() => runSQL(sqlMatches[0][1]), 100);
+                            }} data-tooltip={dialect === 'SQLite' || dialect === 'SQL' ? "Run generated query" : "Execution disabled for this dialect"}>Run Output</button>
                             <button className="action-btn" onClick={() => {
-                              setSqlCode(sqlMatches[0][1]); setMode("analyze"); setSidebarItem("analyze"); setTimeout(() => analyzeSQL(sqlMatches[0][1]), 100);
+                              setSqlCode(sqlMatches[0][1]); setPanelTab("analysis"); setTimeout(() => analyzeSQL(sqlMatches[0][1]), 100);
                             }}>Analyze Output</button>
                           </>
                         )}
                         {sqlMatches.length > 1 && sqlMatches.map((m, idx) => (
                           <div key={idx} style={{display: 'flex', gap: '8px', borderLeft: '2px solid var(--border)', paddingLeft: '12px', marginLeft: '4px'}}>
-                            <button className="action-btn primary" onClick={() => {
-                              setSqlCode(m[1]); setMode("editor"); setSidebarItem("editor"); setTimeout(() => runSQL(m[1]), 100);
+                            <button className="action-btn primary" disabled={dialect !== 'SQLite' && dialect !== 'SQL'} onClick={() => {
+                              setSqlCode(m[1]); setPanelTab("results"); setTimeout(() => runSQL(m[1]), 100);
                             }}>Run Option {idx + 1}</button>
                             <button className="action-btn" onClick={() => {
-                              setSqlCode(m[1]); setMode("analyze"); setSidebarItem("analyze"); setTimeout(() => analyzeSQL(m[1]), 100);
+                              setSqlCode(m[1]); setPanelTab("analysis"); setTimeout(() => analyzeSQL(m[1]), 100);
                             }}>Analyze Option {idx + 1}</button>
                           </div>
                         ))}
@@ -901,192 +961,11 @@ LIMIT 5;
             </div>
           </>
         )}
-
-        {mode === "analyze" && (
-          <>
-            <div className="chat-area" style={{ padding: "32px", gap: "24px" }}>
-              <div className="editor-section">
-                <div className="editor-header">
-                  <span className="editor-title">SQL Query to Analyze</span>
-                  <div className="editor-actions">
-                    <button className="action-btn" onClick={() => setSqlCode("")}>Clear</button>
-                    <button className="action-btn primary" onClick={() => analyzeSQL()} disabled={analyzing} data-tooltip="Run query analysis">
-                      {analyzing ? "Analyzing..." : "Analyze Query"}
-                    </button>
-                  </div>
-                </div>
-                <MonacoEditor height="200px" language="sql" theme="vs-dark" value={sqlCode}
-                  onChange={v => setSqlCode(v || "")}
-                  options={{ minimap: { enabled: false }, fontSize: 14, fontFamily: "JetBrains Mono, monospace", lineNumbers: "on", padding: { top: 16 } }} />
-              </div>
-
-              {analyzing && (
-                <div className="analysis-panel">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="analysis-card" style={{ padding: "20px" }}>
-                      <div className="skeleton-loader skeleton-line short"></div>
-                      <div className="skeleton-loader skeleton-block" style={{ marginTop: "16px" }}></div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {analysisResult && (
-                <div className="analysis-panel">
-                  {analysisResult.classification && (
-                    <div className="analysis-card">
-                      <div className="analysis-card-title" style={{ marginBottom: "16px" }}>Query Type</div>
-                      <div className="analysis-card-value">{analysisResult.classification.sub_type}</div>
-                      <div className="analysis-card-label">{analysisResult.classification.category_full}</div>
-                      <div style={{ marginTop: "12px", fontSize: "13px", color: "var(--text-muted)" }}>{analysisResult.classification.description}</div>
-                    </div>
-                  )}
-
-                  {analysisResult.complexity && (
-                    <div className="analysis-card">
-                      <div className="analysis-card-title" style={{ marginBottom: "16px" }}>Time Complexity</div>
-                      <div className="analysis-card-value">{analysisResult.complexity.complexity}</div>
-                      <div className="analysis-card-label">{analysisResult.complexity.complexity_label}</div>
-                      <div className="score-bar">
-                        <div className="score-bar-fill" style={{ width: `${(analysisResult.complexity.score / 5) * 100}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {analysisResult.rows_affected && (
-                    <div className="analysis-card">
-                      <div className="analysis-card-title" style={{ marginBottom: "16px" }}>Row Prediction</div>
-                      <div className="analysis-card-value">~{analysisResult.rows_affected.estimated_rows.toLocaleString()}</div>
-                      <div className="analysis-card-label">{analysisResult.rows_affected.impact}</div>
-                      {analysisResult.rows_affected.warning && (
-                        <div className="warning-banner">{analysisResult.rows_affected.warning}</div>
-                      )}
-                    </div>
-                  )}
-
-                  {analysisResult.quality && (
-                    <div className="analysis-card">
-                      <div className="analysis-card-title" style={{ marginBottom: "16px" }}>Code Quality Score</div>
-                      <div className="analysis-card-value">{analysisResult.quality.score} / 100</div>
-                      <div className="analysis-card-label">{analysisResult.quality.grade_label}</div>
-                      <div className="score-bar">
-                        <div className="score-bar-fill" style={{ width: `${analysisResult.quality.score}%` }} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            
-            <div className="input-area">
-
-              <div className="input-wrapper">
-                <textarea ref={textareaRef} className="input-textarea"
-                  placeholder="Paste SQL here to analyze..."
-                  value={input} onChange={e => { setInput(e.target.value); autoResize(); }}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (input.trim()) { const q = input.trim(); setSqlCode(q); setInput(""); setTimeout(() => analyzeSQL(q), 100); }
-                    }
-                  }} rows={1} />
-                <button className="send-btn" onClick={() => { if (input.trim()) { const q = input.trim(); setSqlCode(q); setInput(""); setTimeout(() => analyzeSQL(q), 100); } else analyzeSQL(); }} disabled={analyzing} data-tooltip="Analyze input">
-                  {analyzing ? "..." : "Analyze"}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {mode === "editor" && (
-          <>
-            <div className="chat-area" style={{ padding: "32px", gap: "24px" }}>
-              <div className="editor-section" style={{ flex: 1 }}>
-                <div className="editor-header">
-                  <span className="editor-title">SQL Editor</span>
-                  <div className="editor-actions">
-                    <button className="action-btn" onClick={() => setSqlCode("")}>Clear</button>
-                    <button className="action-btn primary" onClick={() => runSQL()} disabled={executing} data-tooltip="Execute query against DB">
-                      {executing ? "Running..." : "Run Query"}
-                    </button>
-                    <button className="action-btn" onClick={() => { setMode("analyze"); setSidebarItem("analyze"); analyzeSQL(); }}>Analyze</button>
-                    <button className="action-btn" onClick={() => { setMode("chat"); setSidebarItem("chat"); sendMessage(`Rewrite and optimize this SQL query:\n\`\`\`sql\n${sqlCode}\n\`\`\``); }} data-tooltip="Send to AI for optimization">
-                      Optimize
-                    </button>
-                  </div>
-                </div>
-                <MonacoEditor height="400px" language="sql" theme="vs-dark" value={sqlCode}
-                  onChange={v => setSqlCode(v || "")}
-                  options={{ minimap: { enabled: false }, fontSize: 14, fontFamily: "JetBrains Mono, monospace", lineNumbers: "on", padding: { top: 16 } }} />
-              </div>
-
-              {executionResult && (
-                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontWeight: 600, fontSize: "14px" }}>Execution Results</div>
-                    <div style={{ fontSize: "12px", color: executionResult.status === "error" ? "var(--red)" : "var(--green)" }}>{executionResult.message || executionResult.error}</div>
-                  </div>
-                  {executionResult.columns && executionResult.data && executionResult.data.length > 0 ? (
-                    <div style={{ overflowX: 'auto', maxHeight: '300px', overflowY: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-                        <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
-                          <tr>
-                            {executionResult.columns.map((c, i) => (
-                              <th key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, color: 'var(--text-secondary)' }}>{c}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {executionResult.data.map((row, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                              {executionResult.columns!.map((c, j) => (
-                                <td key={j} style={{ padding: '8px 12px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{row[c] !== null ? String(row[c]) : <i style={{color:'var(--text-muted)'}}>NULL</i>}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : executionResult.status === "success" && executionResult.columns ? (
-                    <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>No rows returned.</div>
-                  ) : null}
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                {[
-                  { title: "Explain Query", action: () => { setMode("chat"); setSidebarItem("chat"); sendMessage(`Explain what this query does:\n\`\`\`sql\n${sqlCode}\n\`\`\``); } },
-                  { title: "Check Quality", action: () => { setMode("chat"); setSidebarItem("chat"); sendMessage(`Review the code quality of this query:\n\`\`\`sql\n${sqlCode}\n\`\`\``); } },
-                  { title: "List Tables Used", action: () => { setMode("chat"); setSidebarItem("chat"); sendMessage(`List all tables and columns used here:\n\`\`\`sql\n${sqlCode}\n\`\`\``); } },
-                  { title: "Check Permissions", action: () => { setMode("chat"); setSidebarItem("chat"); sendMessage(`What database permissions are required for this query?\n\`\`\`sql\n${sqlCode}\n\`\`\``); } },
-                ].map((btn, i) => (
-                  <button key={i} className="action-btn" style={{ padding: "12px", fontSize: "13px" }} onClick={btn.action}>{btn.title}</button>
-                ))}
-              </div>
-
-              {dbStatus.connected && (
-                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", padding: "20px" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "12px" }}>Active Database Schema</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                    {["students (id, name, email, age, marks)", "courses (id, course_name, credits)", "enrollments (id, student_id, course_id)"].map((t, i) => (
-                      <div key={i} style={{ border: "1px solid var(--border)", background: "var(--bg-secondary)", padding: "6px 12px", fontSize: "13px", color: "var(--text-secondary)" }}>
-                        {t}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="input-area">
-
-            </div>
-          </>
-        )}
       </div>
 
-      {}
-      <aside className="right-panel">
+      <div className="resizer" onMouseDown={startResizing} />
+
+      <aside className="right-panel" style={{ width: rightPanelWidth, minWidth: rightPanelWidth, maxWidth: rightPanelWidth }}>
         <div className="right-panel-tabs">
           {(["results", "analysis", "quality", "tables", "tips"] as PanelTab[]).map(tab => (
             <div key={tab} className={`panel-tab ${panelTab === tab ? "active" : ""}`} onClick={() => setPanelTab(tab)} style={{ textTransform: "capitalize" }}>

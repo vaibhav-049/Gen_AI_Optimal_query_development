@@ -8,23 +8,23 @@ if (!process.env.GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-const SYSTEM_PROMPT = `You are QueryAI — an expert SQL and Database Management System (DBMS) assistant.
+const getSystemPrompt = (dialect = 'SQL') => `You are QueryAI — an expert ${dialect} and Database Management System (DBMS) assistant.
 
 STRICT RULES:
 1. ONLY answer SQL, DBMS, and database-related questions. Decline anything else politely.
-2. ALWAYS write SQL in UPPERCASE keywords (SELECT, FROM, WHERE, etc.)
-3. ALWAYS write clean, properly indented, industry-standard SQL code.
+2. ALWAYS write ${dialect} using appropriate syntax and conventions.
+3. ALWAYS write clean, properly indented, industry-standard ${dialect} code.
 4. ALWAYS prefer JOINs over subqueries unless subquery is clearly better.
 5. ALWAYS add comments explaining non-obvious parts of complex queries.
 6. NEVER use SELECT * — always specify columns.
 7. ALWAYS suggest indexes when relevant.
-8. Format SQL in proper code blocks with \`\`\`sql markers.
+8. Format output in proper code blocks with \`\`\`sql markers (or \`\`\`json for MongoDB).
 
 You can help with: SELECT/INSERT/UPDATE/DELETE, DDL (CREATE/ALTER/DROP), DCL (GRANT/REVOKE),
 TCL (COMMIT/ROLLBACK), JOINs, CTEs, Window Functions, Stored Procedures, Triggers,
 Query Optimization, Normalization, Indexing, EXPLAIN plans, ERD design.`;
 
-const chatWithGemini = async (userMessage, history = [], schema = "") => {
+const chatWithGemini = async (userMessage, history = [], schema = "", dialect = "SQL") => {
     try {
         const chatHistory = history.map(msg => ({
             role: msg.role === "user" ? "user" : "model",
@@ -35,7 +35,7 @@ const chatWithGemini = async (userMessage, history = [], schema = "") => {
         
         const chatModel = genAI.getGenerativeModel({ 
             model: "gemini-2.5-flash", 
-            systemInstruction: `${SYSTEM_PROMPT}${schemaCtx}` 
+            systemInstruction: `${getSystemPrompt(dialect)}${schemaCtx}` 
         });
         
         const chat = chatModel.startChat({ history: chatHistory });
@@ -46,11 +46,11 @@ const chatWithGemini = async (userMessage, history = [], schema = "") => {
     }
 };
 
-const nlpToSql = async (naturalLanguage, schema = "") => {
+const nlpToSql = async (naturalLanguage, schema = "", dialect = "SQL") => {
     const schemaCtx = schema ? `\n\nDatabase Schema:\n${schema}` : "";
-    const prompt = `${SYSTEM_PROMPT}${schemaCtx}
+    const prompt = `${getSystemPrompt(dialect)}${schemaCtx}
 
-The user has described a requirement in natural language. Convert it to SQL.
+The user has described a requirement in natural language. Convert it to ${dialect}.
 
 REQUIREMENT: ${naturalLanguage}
 
@@ -86,11 +86,11 @@ IMPORTANT: Keep explanations extremely short and concise. No conversational fill
     }
 };
 
-const suggestBestQuery = async (requirement, schema = "") => {
+const suggestBestQuery = async (requirement, schema = "", dialect = "SQL") => {
     const schemaCtx = schema ? `\n\nDatabase Schema:\n${schema}` : "";
-    const prompt = `${SYSTEM_PROMPT}${schemaCtx}
+    const prompt = `${getSystemPrompt(dialect)}${schemaCtx}
 
-A user wants to accomplish something in their database. Suggest the BEST query approach.
+A user wants to accomplish something in their database. Suggest the BEST ${dialect} approach.
 
 REQUIREMENT: ${requirement}
 
@@ -152,11 +152,11 @@ Structure your explanation as:
     }
 };
 
-const optimizeQuery = async (sql, schema = "") => {
+const optimizeQuery = async (sql, schema = "", dialect = "SQL") => {
     const schemaCtx = schema ? `\n\nDatabase Schema:\n${schema}` : "";
-    const prompt = `${SYSTEM_PROMPT}${schemaCtx}
+    const prompt = `${getSystemPrompt(dialect)}${schemaCtx}
 
-Analyze and optimize this SQL query. Rewrite it in industry-standard format.
+Analyze and optimize this ${dialect} query. Rewrite it in industry-standard format.
 
 Original Query:
 \`\`\`sql
@@ -189,11 +189,11 @@ Rough estimate of improvement`;
     }
 };
 
-const generateIndustryStandardSql = async (requirement, schema = "") => {
+const generateIndustryStandardSql = async (requirement, schema = "", dialect = "SQL") => {
     const schemaCtx = schema ? `\n\nSchema:\n${schema}` : "";
-    const prompt = `${SYSTEM_PROMPT}${schemaCtx}
+    const prompt = `${getSystemPrompt(dialect)}${schemaCtx}
 
-Generate a clean, industry-standard SQL query for:
+Generate clean, highly optimized, industry-standard ${dialect} code for this requirement:
 ${requirement}
 
 Requirements for the output:

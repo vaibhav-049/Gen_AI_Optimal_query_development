@@ -6,9 +6,9 @@ const dbConnector = require('../services/dbConnector');
 exports.chat = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { message, history = [] } = req.body;
+        const { message, history = [], dialect = 'SQL' } = req.body;
         const schema = await dbConnector.getSchemaAsText(userId);
-        const response = await llmRouter.route('chat', [message, history, schema], userId);
+        const response = await llmRouter.route('chat', [message, history, schema, dialect], userId);
         res.json({ response, status: "success" });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -42,9 +42,9 @@ exports.analyzeSql = async (req, res) => {
 exports.nlpToSqlEndpoint = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { requirement, schema: reqSchema } = req.body;
+        const { requirement, schema: reqSchema, dialect = 'SQL' } = req.body;
         const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
-        const result = await llmRouter.route('nlpToSql', [requirement, schema], userId);
+        const result = await llmRouter.route('nlpToSql', [requirement, schema, dialect], userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -54,9 +54,9 @@ exports.nlpToSqlEndpoint = async (req, res) => {
 exports.suggestQuery = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { requirement, schema: reqSchema } = req.body;
+        const { requirement, schema: reqSchema, dialect = 'SQL' } = req.body;
         const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
-        const result = await llmRouter.route('suggestBestQuery', [requirement, schema], userId);
+        const result = await llmRouter.route('suggestBestQuery', [requirement, schema, dialect], userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -78,14 +78,14 @@ exports.explainSimpleEndpoint = async (req, res) => {
 exports.optimizeSql = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { sql, schema: reqSchema } = req.body;
+        const { sql, schema: reqSchema, dialect = 'SQL' } = req.body;
         if (!sql || !sql.trim()) return res.status(400).json({ detail: "SQL cannot be empty" });
         const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
 
         const classification = sqlParser.classifyQuery(sql);
         const complexity = sqlParser.estimateTimeComplexity(sql);
         const quality = codeQuality.calculateCodeQuality(sql);
-        const aiOptimization = await llmRouter.route('optimizeQuery', [sql, schema], userId);
+        const aiOptimization = await llmRouter.route('optimizeQuery', [sql, schema, dialect], userId);
 
         res.json({ status: "success", sql, classification, complexity, quality, ai_optimization: aiOptimization });
     } catch (error) {
@@ -127,9 +127,9 @@ exports.tablesInfo = async (req, res) => {
 exports.industryStandard = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { requirement, schema: reqSchema } = req.body;
+        const { requirement, schema: reqSchema, dialect = 'SQL' } = req.body;
         const schema = reqSchema || await dbConnector.getSchemaAsText(userId);
-        const result = await llmRouter.route('generateIndustryStandardSql', [requirement, schema], userId);
+        const result = await llmRouter.route('generateIndustryStandardSql', [requirement, schema, dialect], userId);
         res.json({ response: result, status: "success" });
     } catch (error) {
         res.status(500).json({ error: error.message });

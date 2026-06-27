@@ -538,11 +538,22 @@ body {
   border-color: var(--text-primary);
 }
 
-.right-panel {
-  width: 400px;
-  min-width: 400px;
-  background: var(--bg-secondary);
+.resizer {
+  width: 6px;
+  background-color: var(--bg-card);
   border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: col-resize;
+  transition: background-color 0.2s;
+  z-index: 10;
+}
+
+.resizer:hover, .resizer:active {
+  background-color: var(--accent-primary);
+}
+
+.right-panel {
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -31,14 +31,14 @@ const callOllama = async (model, prompt, options = {}) => {
     }
 };
 
-const chatWithOllama = async (userMessage, history = [], schema = '') => {
+const chatWithOllama = async (userMessage, history = [], schema = '', dialect = 'SQL') => {
     const schemaCtx = schema ? `\nDatabase Schema:\n${schema}` : '';
     const historyText = history.slice(-6).map(m =>
         `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
     ).join('\n');
 
-    const prompt = `You are QueryAI — an expert SQL assistant. ONLY answer SQL and database questions. Decline anything else.
-Rules: UPPERCASE SQL keywords, no SELECT *, proper indentation, suggest indexes when relevant.
+    const prompt = `You are QueryAI — an expert ${dialect} assistant. ONLY answer ${dialect} and database questions. Decline anything else.
+Rules: UPPERCASE keywords, no SELECT *, proper indentation, suggest indexes when relevant.
 ${schemaCtx}
 
 ${historyText ? `Previous conversation:\n${historyText}\n` : ''}
@@ -48,15 +48,15 @@ Assistant:`;
     return await callOllama(CHAT_MODEL, prompt);
 };
 
-const nlpToSqlOllama = async (naturalLanguage, schema = '') => {
+const nlpToSqlOllama = async (naturalLanguage, schema = '', dialect = 'SQL') => {
     const schemaCtx = schema ? `\nDatabase Schema:\n${schema}` : '';
 
     const prompt = `/think
-You are a SQL expert. Convert the following requirement to SQL.${schemaCtx}
+You are an expert ${dialect} assistant. Convert the following requirement to ${dialect}.${schemaCtx}
 
 REQUIREMENT: ${naturalLanguage}
 
-Output ONLY the SQL query inside a \`\`\`sql code block. Be direct and concise. Do not provide explanations or multiple options unless explicitly asked.`;
+Output ONLY the ${dialect} query inside a \`\`\`sql code block (or \`\`\`json for MongoDB). Be direct and concise. Do not provide explanations or multiple options unless explicitly asked.`;
 
     try {
         const response = await callOllama(CODE_MODEL, prompt);
@@ -84,10 +84,10 @@ Structure:
     return await callOllama(CHAT_MODEL, prompt);
 };
 
-const optimizeQueryOllama = async (sql, schema = '') => {
+const optimizeQueryOllama = async (sql, schema = '', dialect = 'SQL') => {
     const schemaCtx = schema ? `\nSchema:\n${schema}` : '';
     const prompt = `/think
-You are a SQL optimization expert.${schemaCtx}
+You are an expert ${dialect} optimization assistant.${schemaCtx}
 
 Analyze and optimize this query:
 \`\`\`sql
@@ -99,15 +99,15 @@ Provide: Issues Found, Optimized Query (in \`\`\`sql block), Changes Made, Index
     return await callOllama(CODE_MODEL, prompt);
 };
 
-const suggestBestQueryOllama = async (requirement, schema = '') => {
+const suggestBestQueryOllama = async (requirement, schema = '', dialect = 'SQL') => {
     const schemaCtx = schema ? `\nSchema:\n${schema}` : '';
     const prompt = `/think
-You are a SQL expert.${schemaCtx}
+You are an expert ${dialect} assistant.${schemaCtx}
 
 Requirement: ${requirement}
 
-Provide 2 query options with pros/cons. Label the best one as Recommended.
-Output SQL in \`\`\`sql code blocks.`;
+Provide 2 ${dialect} query options with pros/cons. Label the best one as Recommended.
+Output code in \`\`\`sql blocks.`;
 
     try {
         const response = await callOllama(CODE_MODEL, prompt);
@@ -117,13 +117,13 @@ Output SQL in \`\`\`sql code blocks.`;
     }
 };
 
-const generateIndustryStandardOllama = async (requirement, schema = '') => {
+const generateIndustryStandardOllama = async (requirement, schema = '', dialect = 'SQL') => {
     const schemaCtx = schema ? `\nSchema:\n${schema}` : '';
-    const prompt = `Generate clean, industry-standard SQL for:${schemaCtx}
+    const prompt = `Generate clean, industry-standard ${dialect} code for:${schemaCtx}
 
 ${requirement}
 
-Rules: UPPERCASE keywords, proper indentation, meaningful aliases, no SELECT *, optimized. Output ONLY the SQL.`;
+Rules: UPPERCASE keywords, proper indentation, meaningful aliases, no SELECT *, optimized. Output ONLY the ${dialect} code.`;
 
     return await callOllama(CODE_MODEL, prompt);
 };
